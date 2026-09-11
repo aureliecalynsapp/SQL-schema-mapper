@@ -78,4 +78,5 @@ Build Command = npm run build
 Publish Directory = dist
 Le fichier public/_redirects gère automatiquement la redirection du routing SPA (/* /index.html 200).
 
-## 📄 LicenceCe projet est sous licence MIT.
+## 📄 Licence
+Ce projet est sous licence MIT.

@@ -17,7 +17,7 @@ export default function GroupNode({ data, width, height }) {
           backgroundColor: data.color || '#0284c7',
         }}
       >
-        <span className="group-node-title">📦 {data.label}</span>
+        <span className="group-node-title">{data.label}</span>
         {data.onDelete && (
           <button
             type="button"

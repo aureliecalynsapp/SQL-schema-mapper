@@ -21,6 +21,7 @@ const MAX_HISTORY_SIZE = 30;
 const ALLOWED_EXTENSIONS = ['.sql', '.txt'];
 const ALLOWED_MIME_TYPES = ['text/plain', 'application/sql', 'text/x-sql', 'text/sql'];
 const COLOR_PALETTE = ['#0284c7', '#10b981', '#8b5cf6', '#f59e0b', '#ec4899', '#14b8a6', '#6366f1'];
+const MAX_FK_THRESHOLD = 1000;
 
 function HelperLinesRenderer({ horizontal, vertical }) {
   const { x, y, zoom } = useViewport();
@@ -163,7 +164,7 @@ export default function App() {
   const [businessGroups, setBusinessGroups] = useState([]);
   const [sqlInput, setSqlInput] = useState('');
   const [dbName, setDbName] = useState('mon_schema');
-  const [sqlHistory, setSqlHistory] = useState([]);
+  const [history, setHistory] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [selectedEdgeModal, setSelectedEdgeModal] = useState(null);
   const [selectedCommentModal, setSelectedCommentModal] = useState(null);
@@ -171,10 +172,13 @@ export default function App() {
   const [copiedKey, setCopiedKey] = useState(null);
   const [helperLines, setHelperLines] = useState({ horizontal: null, vertical: null });
   const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('Chargement en cours...');
 
   const lastSnappedPosRef = useRef(null);
   const lastProcessedSqlRef = useRef('');
   const groupDragStartPosRef = useRef(null);
+  const isUndoingRef = useRef(false);
 
   const nodeTypes = useMemo(
     () => ({
@@ -183,6 +187,26 @@ export default function App() {
     }),
     []
   );
+
+  const pushHistory = useCallback(() => {
+    if (isUndoingRef.current) return;
+    const currentState = {
+      nodes,
+      edges,
+      businessGroups,
+      sqlInput,
+      dbName,
+      showSuggestions,
+    };
+
+    setHistory((prev) => {
+      const lastState = prev[prev.length - 1];
+      if (lastState && JSON.stringify(lastState) === JSON.stringify(currentState)) {
+        return prev;
+      }
+      return [...prev, currentState].slice(-MAX_HISTORY_SIZE);
+    });
+  }, [nodes, edges, businessGroups, sqlInput, dbName, showSuggestions]);
 
   useEffect(() => {
     const savedData = localStorage.getItem(LOCAL_STORAGE_KEY);
@@ -193,14 +217,14 @@ export default function App() {
           lastProcessedSqlRef.current = parsed.sqlInput;
           setSqlInput(parsed.sqlInput);
         }
-        if (parsed.dbName) setDbName(parsed.dbName);
+        if (parsed.dbName !== undefined) setDbName(parsed.dbName);
         if (typeof parsed.showSuggestions === 'boolean') setShowSuggestions(parsed.showSuggestions);
         if (parsed.businessGroups && Array.isArray(parsed.businessGroups)) {
           setBusinessGroups(parsed.businessGroups);
         }
         if (parsed.nodes && parsed.edges) {
           setNodes(parsed.nodes);
-          setEdges(parsed.edges);
+          setEdges(updateEdgeHandles(parsed.nodes, parsed.edges));
         }
       } catch (err) {
         console.warn('Échec de lecture du localStorage:', err);
@@ -224,8 +248,9 @@ export default function App() {
   }, [nodes, edges, sqlInput, dbName, showSuggestions, businessGroups]);
 
   const handleDeleteGroup = useCallback((groupId) => {
+    pushHistory();
     setBusinessGroups((prev) => prev.filter((g) => g.id !== groupId));
-  }, []);
+  }, [pushHistory]);
 
   const handleRenameGroup = useCallback((groupId) => {
     setBusinessGroups((prev) => {
@@ -233,11 +258,13 @@ export default function App() {
       if (!target) return prev;
       const newName = prompt("Nouveau nom de l'objet métier :", target.name);
       if (!newName || !newName.trim()) return prev;
+      pushHistory();
       return prev.map((g) => (g.id === groupId ? { ...g, name: newName.trim() } : g));
     });
-  }, []);
+  }, [pushHistory]);
 
   const handleChangeGroupColor = useCallback((groupId) => {
+    pushHistory();
     setBusinessGroups((prev) =>
       prev.map((g) => {
         if (g.id !== groupId) return g;
@@ -246,7 +273,7 @@ export default function App() {
         return { ...g, color: nextColor };
       })
     );
-  }, []);
+  }, [pushHistory]);
 
   const selectedTables = useMemo(() => {
     return nodes.filter((n) => n.type === 'tableNode' && n.selected);
@@ -256,6 +283,8 @@ export default function App() {
     if (selectedTables.length === 0) return;
     const name = prompt("Nom de l'objet métier :", `Objet Métier ${businessGroups.length + 1}`);
     if (!name || !name.trim()) return;
+
+    pushHistory();
 
     const newGroup = {
       id: `group_${Date.now()}`,
@@ -272,7 +301,7 @@ export default function App() {
         selected: false,
       }))
     );
-  }, [selectedTables, businessGroups]);
+  }, [selectedTables, businessGroups, pushHistory]);
 
   const computedGroupNodes = useMemo(() => {
     if (!businessGroups || businessGroups.length === 0) return [];
@@ -342,19 +371,13 @@ export default function App() {
   }, [computedGroupNodes, nodes]);
 
   const processSQLContent = useCallback((content, recordHistory = true, preservePositions = true) => {
-    lastProcessedSqlRef.current = content;
     console.time('⏱️ Traitement SQL global');
 
     if (recordHistory) {
-      setSqlHistory((prevHistory) => {
-        if (prevHistory.length > 0 && prevHistory[prevHistory.length - 1] === content) {
-          return prevHistory;
-        }
-        const updated = [...prevHistory, sqlInput];
-        return updated.slice(-MAX_HISTORY_SIZE);
-      });
+      pushHistory();
     }
 
+    lastProcessedSqlRef.current = content;
     setSqlInput(content);
 
     console.time('⏱️ Parsing SQL (sqlParser)');
@@ -465,27 +488,40 @@ export default function App() {
     }
 
     console.timeEnd('⏱️ Traitement SQL global');
-  }, [sqlInput]);
+  }, [pushHistory]);
 
   useEffect(() => {
     if (sqlInput === lastProcessedSqlRef.current) return;
 
     const timer = setTimeout(() => {
-      processSQLContent(sqlInput, false, true);
-    }, 300);
+      processSQLContent(sqlInput, true, true);
+    }, 400);
 
     return () => clearTimeout(timer);
   }, [sqlInput, processSQLContent]);
 
-  const handleUndoSQL = useCallback(() => {
-    setSqlHistory((prevHistory) => {
+  const handleUndo = useCallback(() => {
+    setHistory((prevHistory) => {
       if (prevHistory.length === 0) return prevHistory;
-      const previousSql = prevHistory[prevHistory.length - 1];
+      const previousState = prevHistory[prevHistory.length - 1];
       const newHistory = prevHistory.slice(0, prevHistory.length - 1);
-      processSQLContent(previousSql, false, true);
+
+      isUndoingRef.current = true;
+      setNodes(previousState.nodes);
+      setEdges(updateEdgeHandles(previousState.nodes, previousState.edges));
+      setBusinessGroups(previousState.businessGroups);
+      setSqlInput(previousState.sqlInput);
+      setDbName(previousState.dbName);
+      setShowSuggestions(previousState.showSuggestions);
+      lastProcessedSqlRef.current = previousState.sqlInput;
+
+      setTimeout(() => {
+        isUndoingRef.current = false;
+      }, 50);
+
       return newHistory;
     });
-  }, [processSQLContent]);
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -494,13 +530,18 @@ export default function App() {
           return;
         }
         e.preventDefault();
-        handleUndoSQL();
+        handleUndo();
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        exportJSON(sqlInput, showSuggestions, nodes, edges, dbName, businessGroups);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndoSQL]);
+  }, [handleUndo, sqlInput, showSuggestions, nodes, edges, dbName, businessGroups]);
 
   const isValidSQLFile = (file) => {
     if (!file) return false;
@@ -517,6 +558,9 @@ export default function App() {
       return;
     }
 
+    setIsLoading(true);
+    setLoadingMessage('Analyse et chargement du fichier SQL...');
+
     console.log(`📂 Début de lecture du fichier : ${file.name} (${Math.round(file.size / 1024)} Ko)`);
     console.time('⏱️ FileReader lecture');
 
@@ -524,12 +568,18 @@ export default function App() {
     reader.onload = (event) => {
       console.timeEnd('⏱️ FileReader lecture');
       const content = event.target.result;
-      setSqlHistory([]);
-      processSQLContent(content, false, false);
+      pushHistory();
+      setBusinessGroups([]);
+
+      setTimeout(() => {
+        processSQLContent(content, false, false);
+        setIsLoading(false);
+      }, 10);
     };
     reader.onerror = () => {
       console.error('❌ Erreur lors de la lecture du fichier.');
       alert('Erreur lors de la lecture du fichier.');
+      setIsLoading(false);
     };
     reader.readAsText(file);
   };
@@ -587,10 +637,11 @@ export default function App() {
   );
 
   const onNodeDragStart = useCallback((event, node) => {
+    pushHistory();
     if (node.type === 'groupNode') {
       groupDragStartPosRef.current = { x: node.position.x, y: node.position.y };
     }
-  }, []);
+  }, [pushHistory]);
 
   const onNodeDrag = useCallback(
     (event, draggedNode) => {
@@ -684,33 +735,26 @@ export default function App() {
   );
 
   const handleResetLayout = () => {
-    if (nodes.length > 80) {
-      const COLS = 8;
-      const sortedNodes = [...nodes].sort((a, b) => (a.data?.name || '').localeCompare(b.data?.name || ''));
-      const gridNodes = sortedNodes.map((node, idx) => ({
-        ...node,
-        position: {
-          x: (idx % COLS) * 320,
-          y: Math.floor(idx / COLS) * 450,
-        },
-      }));
-      const gridEdges = updateEdgeHandles(gridNodes, edges);
-      setNodes(gridNodes);
-      setEdges(gridEdges);
-    } else {
-      const resetNodes = nodes.map((n) => ({
-        ...n,
-        position: { x: 0, y: 0 },
-      }));
-
-      const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
-        resetNodes,
-        edges,
-        'LR'
-      );
-      setNodes(layoutedNodes);
-      setEdges(layoutedEdges);
+    const tableNodes = nodes.filter((n) => n.type === 'tableNode');
+    if (tableNodes.length > 80) {
+      alert(`Impossible d'appliquer l'Auto-Layout : le schéma contient trop de tables (${tableNodes.length} > 80). Le calcul automatique est désactivé pour éviter de bloquer l'interface.`);
+      return;
     }
+
+    pushHistory();
+
+    const resetNodes = nodes.map((n) => ({
+      ...n,
+      position: { x: 0, y: 0 },
+    }));
+
+    const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
+      resetNodes,
+      edges,
+      'LR'
+    );
+    setNodes(layoutedNodes);
+    setEdges(layoutedEdges);
   };
 
   const handleApplySqlToScript = (sqlSnippet) => {
@@ -723,32 +767,67 @@ export default function App() {
     const file = e.target.files[0];
     if (!file) return;
 
+    setIsLoading(true);
+    setLoadingMessage('Importation du projet JSON...');
+
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
         const parsed = JSON.parse(event.target.result);
-        setSqlHistory([]);
-        if (parsed.businessGroups && Array.isArray(parsed.businessGroups)) {
-          setBusinessGroups(parsed.businessGroups);
-        }
-        if (parsed.sqlInput !== undefined) processSQLContent(parsed.sqlInput, false, true);
-        if (parsed.dbName !== undefined) setDbName(parsed.dbName);
+        
+        setHistory([]);
+
+        setBusinessGroups(Array.isArray(parsed.businessGroups) ? parsed.businessGroups : []);
+        setDbName(parsed.dbName !== undefined ? parsed.dbName : 'mon_schema');
         if (parsed.showSuggestions !== undefined) setShowSuggestions(parsed.showSuggestions);
-        if (parsed.nodes && parsed.edges) {
-          setNodes(parsed.nodes);
-          setEdges(parsed.edges);
-        }
+
+        setTimeout(() => {
+          if (parsed.sqlInput !== undefined && parsed.sqlInput.trim() !== '') {
+            processSQLContent(parsed.sqlInput, false, false);
+            
+            if (parsed.nodes && Array.isArray(parsed.nodes)) {
+              setNodes((prevNodes) => {
+                const posMap = new Map(parsed.nodes.map((n) => [n.id, n.position]));
+                const mergedNodes = prevNodes.map((n) =>
+                  posMap.has(n.id) ? { ...n, position: posMap.get(n.id) } : n
+                );
+                if (parsed.edges) {
+                  setEdges(updateEdgeHandles(mergedNodes, parsed.edges));
+                }
+                return mergedNodes;
+              });
+            }
+          } else if (parsed.nodes && parsed.edges) {
+            setNodes(parsed.nodes);
+            setEdges(updateEdgeHandles(parsed.nodes, parsed.edges));
+          }
+          setIsLoading(false);
+        }, 10);
+
       } catch (err) {
         alert('Fichier de sauvegarde invalide.');
+        setIsLoading(false);
       }
+    };
+    reader.onerror = () => {
+      alert('Erreur lors de la lecture du fichier JSON.');
+      setIsLoading(false);
     };
     reader.readAsText(file);
     e.target.value = '';
   };
 
   const visibleEdges = useMemo(() => {
-    if (showSuggestions) return edges;
-    return edges.filter((edge) => !edge.data?.isSuggested);
+    if (!showSuggestions) return edges.filter((edge) => !edge.data?.isSuggested);
+    
+    // Vérification de la limite du nombre de FK suggérées ou totales
+    if (edges.length > MAX_FK_THRESHOLD) {
+      alert(`⚠️ Trop de clés étrangères détectées (${edges.length}). L'affichage des suggestions est désactivé pour éviter de surcharger l'interface (limite fixée à ${MAX_FK_THRESHOLD}).`);
+      setShowSuggestions(false);
+      return edges.filter((edge) => !edge.data?.isSuggested);
+    }
+
+    return edges;
   }, [edges, showSuggestions]);
 
   const onEdgeClick = useCallback((event, edge) => {
@@ -812,21 +891,44 @@ export default function App() {
 
   return (
     <div className="app-container">
+      {isLoading && (
+        <div className="global-loading-overlay">
+          <div className="global-loading-spinner-box">
+            <div className="spinner-circle"></div>
+            <span>{loadingMessage}</span>
+          </div>
+        </div>
+      )}
+
       <div className="sidebar">
         <h2>SQL Schema Mapper</h2>
+        <div className="sidebar-section">
+          <label className="sidebar-section-title">Importer un projet :</label>
+          <div className="export-grid">
+            <label className="btn-import-json">
+              Import JSON
+              <input
+                type="file"
+                accept=".json"
+                onChange={handleImportJSON}
+              />
+            </label>
+          </div>
+        </div>
 
         <div className="sidebar-section">
           <label className="sidebar-section-title">Nom de la base de données :</label>
           <input
             type="text"
             value={dbName}
-            onChange={(e) => setDbName(e.target.value)}
+            onChange={(e) => {
+              pushHistory();
+              setDbName(e.target.value);
+            }}
             placeholder="Nom de la base..."
             className="db-name-input"
           />
         </div>
-
-        <p>Colle ton script CREATE TABLE SQL ou dépose un fichier `.sql` / `.txt` :</p>
 
         <div
           className={`drop-zone ${isDraggingFile ? 'dragging' : ''}`}
@@ -837,11 +939,11 @@ export default function App() {
           <textarea
             value={sqlInput}
             onChange={(e) => setSqlInput(e.target.value)}
-            placeholder="Glisse-dépose un fichier SQL/TXT ici ou colle ton code..."
+            placeholder="Glisse-dépose un fichier SQL/TXT ici ou colle le..."
           />
 
           <label className="file-browse-label">
-            📁 Parcourir un fichier SQL / TXT...
+            📁 Parcourir un fichier SQL / TXT
             <input
               type="file"
               accept=".sql,.txt"
@@ -852,10 +954,10 @@ export default function App() {
 
         <div className="action-buttons-row">
           <button
-            onClick={handleUndoSQL}
-            disabled={sqlHistory.length === 0}
+            onClick={handleUndo}
+            disabled={history.length === 0}
             className="btn-undo"
-            title="Annuler la dernière modification du SQL (Ctrl+Z)"
+            title="Annuler la dernière action (Ctrl+Z)"
           >
             Annuler (Ctrl+Z)
           </button>
@@ -869,7 +971,7 @@ export default function App() {
         </div>
 
         <div className="sidebar-section">
-          <label className="sidebar-section-title">Objets Métiers (Patates) :</label>
+          <label className="sidebar-section-title">Objets Métiers :</label>
           {selectedTables.length > 0 && (
             <span className="selected-count-badge">
               ✓ {selectedTables.length} table(s) sélectionnée(s)
@@ -881,7 +983,7 @@ export default function App() {
             className="btn-create-group"
             title="Sélectionne une ou plusieurs tables sur le schéma pour les regrouper"
           >
-            📦 Grouper les tables sélectionnées
+            Grouper les tables sélectionnées
           </button>
 
           {businessGroups.length > 0 && (
@@ -930,7 +1032,10 @@ export default function App() {
                 type="radio"
                 name="fkSuggestions"
                 checked={showSuggestions === true}
-                onChange={() => setShowSuggestions(true)}
+                onChange={() => {
+                  pushHistory();
+                  setShowSuggestions(true);
+                }}
               />
               Afficher
             </label>
@@ -939,7 +1044,10 @@ export default function App() {
                 type="radio"
                 name="fkSuggestions"
                 checked={showSuggestions === false}
-                onChange={() => setShowSuggestions(false)}
+                onChange={() => {
+                  pushHistory();
+                  setShowSuggestions(false);
+                }}
               />
               Masquer
             </label>
@@ -950,22 +1058,14 @@ export default function App() {
           <label className="sidebar-section-title">Sauvegarde & Exportation :</label>
           <div className="export-grid">
             <button onClick={() => exportSQL(sqlInput, dbName)} className="btn-export-sql">
-              Télécharger .sql
-            </button>
-            <button onClick={() => exportJSON(sqlInput, showSuggestions, nodes, edges, dbName, businessGroups)} className="btn-export-json">
-              Export JSON
+              Export SQL
             </button>
             <button onClick={() => exportHTML(nodes, edges, showSuggestions, dbName, businessGroups)} className="btn-export-html">
               Export HTML
             </button>
-            <label className="btn-import-json">
-              Importer JSON
-              <input
-                type="file"
-                accept=".json"
-                onChange={handleImportJSON}
-              />
-            </label>
+            <button onClick={() => exportJSON(sqlInput, showSuggestions, nodes, edges, dbName, businessGroups)} className="btn-export-json" title="Ctrl+S">
+              Sauvegarde JSON
+            </button>
           </div>
         </div>
       </div>
