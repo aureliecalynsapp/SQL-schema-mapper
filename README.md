@@ -38,32 +38,39 @@ sql-schema-mapper/
 │   └── _redirects              # Configuration des redirections SPA pour Render
 ├── src/
 │   ├── components/
+│   │   └── GroupNode.jsx       # Composant sur-mesure pour l'affichage des objets métiers
 │   │   └── TableNode.jsx       # Composant sur-mesure pour l'affichage d'une table et de ses colonnes
 │   ├── utils/
 │   │   ├── sqlParser.js        # Parser SQL (extracteur de nœuds, colonnes et relations FK)
 │   │   └── exporters.js        # Générateurs d'exports (SQL, JSON, HTML)
 │   ├── App.jsx                 # Composant principal, gestion de l'état du graphe et auto-layout
-│   ├── index.css               # Styles globaux & Tailwind
+│   ├── App.css                 # Styles globaux & Tailwind
 │   └── main.jsx                # Point d'entrée React
 ├── package.json
 └── vite.config.js
+```
 
-🚀 Installation & Démarrage Local
+---
 
-PrérequisNode.js >= 18.0.0npm ou yarn / pnpm
+## 🚀 Installation & Démarrage Local
+
+Prérequis
+- Node.js >= 18.0.0
+- npm ou yarn / pnpm
+
 Procédure
-Cloner le dépôt :
+- Cloner le dépôt :
 git clone [https://github.com/aureliecalynsapp/SQL-schema-mapper.git](https://github.com/aureliecalynsapp/SQL-schema-mapper.git)
 cd SQL-schema-mapper
-Installer les dépendances :
+- Installer les dépendances :
 npm install
-Lancer le serveur de développement :
+- Lancer le serveur de développement :
 npm run dev
-L'application sera accessible sur http://localhost:5173.
-Générer le build de production :
+- L'application sera accessible sur http://localhost:5173.
+- Générer le build de production :
 npm run build
 
-🌐 Déploiement
+## 🌐 Déploiement
 
 Le projet est préconfiguré pour un déploiement direct en Static Site sur Render.com.
 
@@ -71,4 +78,4 @@ Build Command = npm run build
 Publish Directory = dist
 Le fichier public/_redirects gère automatiquement la redirection du routing SPA (/* /index.html 200).
 
-📄 LicenceCe projet est sous licence MIT.
+## 📄 LicenceCe projet est sous licence MIT.
