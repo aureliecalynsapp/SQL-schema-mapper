@@ -1,16 +1,74 @@
-# React + Vite
+# 🗄️ SQL Schema Mapper
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+**SQL Schema Mapper** est une application web interactive conçue pour visualiser, analyser et mapper des schémas de bases de données SQL sous forme de graphes relationnels dynamiques.
 
-Currently, two official plugins are available:
+Il permet d'importer des scripts SQL (`CREATE TABLE`, `ALTER TABLE`, clés étrangères), de générer automatiquement un diagramme E/R clair, et d'exporter le schéma sous plusieurs formats.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+---
 
-## React Compiler
+## ✨ Fonctionnalités Principales
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- 📑 **Parsing SQL Robuste** : Prise en charge des requêtes `CREATE TABLE`, des contraintes `FOREIGN KEY`, des types de données et des clés primaires .
+- 📊 **Visualisation Interactive** : Affichage des tables et des colonnes sous forme de nœuds personnalisés (`@xyflow/react`).
+- 🧠 **Agencement Automatique (Auto-Layout)** : Disposition intelligente des nœuds et calcul de trajectoire des arêtes pour éviter le chevauchement grâce à `Dagre`.
+- 🔌 **Handles Dynamiques** : Connexions ciblées au niveau des colonnes avec orientation dynamique des ancres de liens.
+- 💾 **Exportation Multi-Formats** :
+  - **SQL** : Re-génération d'un script SQL propre.
+  - **JSON** : Sauvegarde et restauration de la structure du schéma.
+  - **HTML / Image** : Export visuel du diagramme.
 
-## Expanding the Oxlint configuration
+---
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+## 🛠️ Tech Stack
+
+- **Framework Front-End** : [React 19](https://react.dev/) + [Vite 8](https://vitejs.dev/)
+- **Visualisation de Graphe** : [@xyflow/react (React Flow v12)](https://reactflow.dev/)
+- **Moteur d'Agencement** : [Dagre](https://github.com/dagrejs/dagre)
+- **Styling** : [Tailwind CSS](https://tailwindcss.com/)
+- **Icônes** : [Lucide React](https://lucide.dev/)
+- **Linter** : [Oxlint](https://oxc.rs/)
+
+---
+
+## 📁 Architecture du Projet
+
+```text
+sql-schema-mapper/
+├── public/
+│   └── _redirects              # Configuration des redirections SPA pour Render
+├── src/
+│   ├── components/
+│   │   └── TableNode.jsx       # Composant sur-mesure pour l'affichage d'une table et de ses colonnes
+│   ├── utils/
+│   │   ├── sqlParser.js        # Parser SQL (extracteur de nœuds, colonnes et relations FK)
+│   │   └── exporters.js        # Générateurs d'exports (SQL, JSON, HTML)
+│   ├── App.jsx                 # Composant principal, gestion de l'état du graphe et auto-layout
+│   ├── index.css               # Styles globaux & Tailwind
+│   └── main.jsx                # Point d'entrée React
+├── package.json
+└── vite.config.js
+
+🚀 Installation & Démarrage Local
+
+PrérequisNode.js >= 18.0.0npm ou yarn / pnpm
+Procédure
+Cloner le dépôt :
+git clone [https://github.com/aureliecalynsapp/SQL-schema-mapper.git](https://github.com/aureliecalynsapp/SQL-schema-mapper.git)
+cd SQL-schema-mapper
+Installer les dépendances :
+npm install
+Lancer le serveur de développement :
+npm run dev
+L'application sera accessible sur http://localhost:5173.
+Générer le build de production :
+npm run build
+
+🌐 Déploiement
+
+Le projet est préconfiguré pour un déploiement direct en Static Site sur Render.com.
+
+Build Command = npm run build
+Publish Directory = dist
+Le fichier public/_redirects gère automatiquement la redirection du routing SPA (/* /index.html 200).
+
+📄 LicenceCe projet est sous licence MIT.
